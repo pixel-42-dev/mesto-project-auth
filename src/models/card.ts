@@ -1,5 +1,5 @@
-import { Schema, model } from "mongoose";
-
+import { Schema, model } from 'mongoose';
+import validator from 'validator';
 
 interface ICard {
   name: string;
@@ -9,16 +9,20 @@ interface ICard {
   createdAt: Date;
 }
 
-const cardSchema = new Schema({
+const cardSchema = new Schema<ICard>({
   name: {
     type: String,
+    minlength: [2, 'Минимальная длина поля "name" - 2 символа'],
+    maxlength: [30, 'Максимальная длина поля "name" - 30 символов'],
     required: [true, 'Поле "name" должно быть заполнено'],
-    minlength: [2, 'Минимальная длина "name" - 2 символа'],
-    maxlength: [30, 'Максимальная длина "name" - 30 символов'],
   },
   link: {
     type: String,
-    required: [true, 'В "link" должна быть указана ссылка'],
+    validate: {
+      validator: (avatarValue: string) => validator.isURL(avatarValue),
+      message: 'Некорректная ссылка',
+    },
+    required: [true, 'В поле "link" должна быть указана ссылка'],
   },
   owner: {
     type: Schema.Types.ObjectId,

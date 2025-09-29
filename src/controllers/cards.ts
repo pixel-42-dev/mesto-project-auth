@@ -1,75 +1,99 @@
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import Card from '../models/card';
+import { IAppRequest } from '../types/request';
+import {
+  BadRequestError, ForbiddenError, NotFoundError, StatusCodes,
+} from '../errors/index';
 
-const DATA_ERROR_CODE = 400;
-const NOT_FOUND_CODE = 404;
-const DEFAULT_ERROR_CODE = 500;
-const ID_ERROR_MESSAGE = 'передан некорректный _id';
-const DATA_ERROR_MESSAGE = 'переданы некорректные данные';
-const DEFAULT_ERROR_MESSAGE = 'На сервере произошла ошибка';
+const NotFoundErrorMassage = 'Передан несуществующий id карточки.';
+const BadRequestErrorMassage = 'Переданы некорректные данные для лайка или некорректный id карточки.';
 
-
-export const getCards = (_req: Request, res: Response) => {
+export const getCards = (_req: Request, res: Response, next: NextFunction) => {
   Card.find({})
-    .then(cards => res.send({ data: cards }))
-    .catch(() => res.status(DEFAULT_ERROR_CODE).send({ message: DEFAULT_ERROR_MESSAGE }));
+    .then((cards) => res.send({ data: cards }))
+    .catch(next);
 };
 
-export const createCard = (req: Request, res: Response) => {
+export const createCard = (req: IAppRequest, res: Response, next: NextFunction) => {
   const { name, link } = req.body;
-// @ts-expect-error 2339
-  Card.create({ name, link, owner: req.user._id })
-    .then(card => res.status(201).send({ data: card }))
-    .catch((err) => {
-      if (err.name === 'ValidationError') {
-        return res.status(DATA_ERROR_CODE).send({ message: DATA_ERROR_MESSAGE });
+  const requestUser = req.user;
+  // eslint-disable-next-line no-underscore-dangle
+  const userId = typeof requestUser === 'string' ? requestUser : requestUser?._id;
+
+  Card.create({ name, link, owner: userId })
+    .then((card) => res.status(StatusCodes.CREATED).send({ data: card }))
+    .catch(next);
+};
+
+export const deleteCardById = (req: IAppRequest, res: Response, next: NextFunction) => {
+  const requestUser = req.user;
+  // eslint-disable-next-line no-underscore-dangle
+  const userId = typeof requestUser === 'string' ? requestUser : requestUser?._id;
+
+  Card.findById(req.params.cardId)
+    .orFail(new NotFoundError(NotFoundErrorMassage))
+    .then((card) => {
+      if (card.owner.toString() !== userId) {
+        throw new ForbiddenError('Вы пытаетесь удалить чужую карточку');
       }
-      res.status(DEFAULT_ERROR_CODE).send({ message: DEFAULT_ERROR_MESSAGE });
+    })
+    .then(() => {
+      Card.deleteOne({ _id: req.params.cardId })
+        .then((card) => {
+          if (card.deletedCount === 0) {
+            throw new NotFoundError('Карточка с указанным id не найдена.');
+          } else {
+            res.send({ message: 'Пост уже удалён' });
+          }
+        });
+    })
+    .catch((error) => {
+      const errorToThrow = error.name === 'CastError'
+        ? new BadRequestError('Передан некорректный id карточки.')
+        : error;
+
+      next(errorToThrow);
     });
 };
 
-export const deleteCardById = (req: Request, res: Response) => {
-  Card.findByIdAndDelete(req.params.cardId)
-    .then(card => res.send({ data: card }))
-    .catch(() => res.status(NOT_FOUND_CODE).send({ message: ID_ERROR_MESSAGE }));
-};
+export const likeCard = (req: IAppRequest, res: Response, next: NextFunction) => {
+  const requestUser = req.user;
+  // eslint-disable-next-line no-underscore-dangle
+  const userId = typeof requestUser === 'string' ? requestUser : requestUser?._id;
 
-export const likeCard = (req: Request, res: Response) => {
   Card.findByIdAndUpdate(
     req.params.cardId,
-    // @ts-expect-error 2339
-    { $addToSet: { likes: req.user._id } },
+    { $addToSet: { likes: userId } },
     { new: true, runValidators: true },
   )
-    .orFail()
-    .then(card => res.send({ data: card }))
-    .catch((err) => {
-      if (err.name === 'ValidationError') {
-        return res.status(DATA_ERROR_CODE).send({ message: DATA_ERROR_MESSAGE })
-      }
-      if (err.name === 'DocumentNotFoundError') {
-        return res.status(NOT_FOUND_CODE).send({ message: ID_ERROR_MESSAGE })
-      }
-      res.status(DEFAULT_ERROR_CODE).send({ message: DEFAULT_ERROR_MESSAGE})
+    .orFail(new NotFoundError(NotFoundErrorMassage))
+    .then((card) => res.send({ data: card }))
+    .catch((error) => {
+      const errorToThrow = error.name === 'CastError'
+        ? new BadRequestError(BadRequestErrorMassage)
+        : error;
+
+      next(errorToThrow);
     });
 };
 
-export const dislikeCard = (req: Request, res: Response) => {
+export const dislikeCard = (req: IAppRequest, res: Response, next: NextFunction) => {
+  const requestUser = req.user;
+  // eslint-disable-next-line no-underscore-dangle
+  const userId = typeof requestUser === 'string' ? requestUser : requestUser?._id;
+
   Card.findByIdAndUpdate(
     req.params.cardId,
-    // @ts-expect-error 2339
-    { $pull: { likes: req.user._id } },
+    { $pull: { likes: userId } },
     { new: true, runValidators: true },
   )
-    .orFail()
-    .then(card => res.send({ data: card }))
-    .catch((err) => {
-      if (err.name === 'ValidationError') {
-        return res.status(DATA_ERROR_CODE).send({ message: DATA_ERROR_MESSAGE })
-      }
-      if (err.name === 'DocumentNotFoundError') {
-        return res.status(NOT_FOUND_CODE).send({ message: ID_ERROR_MESSAGE })
-      }
-      res.status(DEFAULT_ERROR_CODE).send({ message: DEFAULT_ERROR_MESSAGE})
+    .orFail(new NotFoundError(NotFoundErrorMassage))
+    .then((card) => res.send({ data: card }))
+    .catch((error) => {
+      const errorToThrow = error.name === 'CastError'
+        ? new BadRequestError(BadRequestErrorMassage)
+        : error;
+
+      next(errorToThrow);
     });
 };
